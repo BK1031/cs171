@@ -79,51 +79,6 @@ func initializeConfig(ports string, leaderPort string) {
 	IsLeader = LeaderPort == PortsList[0]
 }
 
-// Database functions
-func initializeDatabase() {
-	DB = make(map[int]int)
-}
-
-func Insert(key int, value int) {
-	Mutex.Lock()
-	defer Mutex.Unlock()
-	DB[key] = value
-}
-
-func Lookup(key int) (int, bool) {
-	Mutex.RLock()
-	defer Mutex.RUnlock()
-	value, ok := DB[key]
-	return value, ok
-}
-
-func Dump() string {
-	Mutex.RLock()
-	defer Mutex.RUnlock()
-	result := ""
-
-	if IsLeader {
-		result = "primary {"
-	} else {
-		result = "secondary {"
-	}
-
-	keys := make([]int, 0, len(DB))
-	for key := range DB {
-		keys = append(keys, key)
-	}
-	sort.Ints(keys)
-
-	for i, key := range keys {
-		if i > 0 {
-			result += ", "
-		}
-		result += fmt.Sprintf("(%d, %d)", key, DB[key])
-	}
-	result += "}"
-	return result
-}
-
 // Main server functions
 func handleCLIInput() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -190,6 +145,8 @@ func handleConnection(conn net.Conn) {
 }
 
 func handleMessage(message string) string {
+	time.Sleep(time.Duration(NetworkDelay) * time.Second)
+
 	args := strings.Split(message, " ")
 	clientID := args[0]
 	command := args[1]
@@ -290,4 +247,49 @@ func dumpConnectionMap() {
 	for clientID, conn := range connectionMap {
 		println("Client " + clientID + " connected from " + conn.RemoteAddr().String())
 	}
+}
+
+// Database functions
+func initializeDatabase() {
+	DB = make(map[int]int)
+}
+
+func Insert(key int, value int) {
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	DB[key] = value
+}
+
+func Lookup(key int) (int, bool) {
+	Mutex.RLock()
+	defer Mutex.RUnlock()
+	value, ok := DB[key]
+	return value, ok
+}
+
+func Dump() string {
+	Mutex.RLock()
+	defer Mutex.RUnlock()
+	result := ""
+
+	if IsLeader {
+		result = "primary {"
+	} else {
+		result = "secondary {"
+	}
+
+	keys := make([]int, 0, len(DB))
+	for key := range DB {
+		keys = append(keys, key)
+	}
+	sort.Ints(keys)
+
+	for i, key := range keys {
+		if i > 0 {
+			result += ", "
+		}
+		result += fmt.Sprintf("(%d, %d)", key, DB[key])
+	}
+	result += "}"
+	return result
 }
