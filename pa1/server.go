@@ -7,12 +7,22 @@ import (
 	"log"
 	"net"
 	"os"
-	"server/config"
-	"server/database"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// Config variables
+var PortsList []string
+var LeaderPort string
+var IsLeader bool
+var NetworkDelay = 3
+
+// Database variables
+var DB map[int]int
+var Mutex sync.RWMutex
 
 var connectionMap = make(map[string]net.Conn)
 
@@ -25,21 +35,21 @@ func main() {
 		log.Fatal("Please provide ports and leader port using the -ports and -leader flags")
 	}
 
-	config.Initialize(*ports, *leaderPort)
-	database.Initialize()
+	initializeConfig(*ports, *leaderPort)
+	initializeDatabase()
 	go handleCLIInput()
 
-	server, err := net.Listen("tcp", ":"+config.PortsList[0])
+	server, err := net.Listen("tcp", ":"+PortsList[0])
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer server.Close()
 
-	if config.IsLeader {
-		println("State: Leader")
-	} else {
-		println("State: Follower")
-	}
+	// if IsLeader {
+	// 	println("State: Leader")
+	// } else {
+	// 	println("State: Follower")
+	// }
 
 	time.Sleep(3 * time.Second)
 	go initalizeFollowerConnections()
@@ -54,6 +64,67 @@ func main() {
 	}
 }
 
+// Config functions
+func initializeConfig(ports string, leaderPort string) {
+	if ports == "" || leaderPort == "" {
+		log.Fatal("Ports and LeaderPort must be provided")
+	}
+	PortsList = strings.Split(ports, ",")
+	for _, port := range PortsList {
+		if port == "" {
+			log.Fatal("invalid port")
+		}
+	}
+	LeaderPort = leaderPort
+	IsLeader = LeaderPort == PortsList[0]
+}
+
+// Database functions
+func initializeDatabase() {
+	DB = make(map[int]int)
+}
+
+func Insert(key int, value int) {
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	DB[key] = value
+}
+
+func Lookup(key int) (int, bool) {
+	Mutex.RLock()
+	defer Mutex.RUnlock()
+	value, ok := DB[key]
+	return value, ok
+}
+
+func Dump() string {
+	Mutex.RLock()
+	defer Mutex.RUnlock()
+	result := ""
+
+	if IsLeader {
+		result = "primary {"
+	} else {
+		result = "secondary {"
+	}
+
+	keys := make([]int, 0, len(DB))
+	for key := range DB {
+		keys = append(keys, key)
+	}
+	sort.Ints(keys)
+
+	for i, key := range keys {
+		if i > 0 {
+			result += ", "
+		}
+		result += fmt.Sprintf("(%d, %d)", key, DB[key])
+	}
+	result += "}"
+	return result
+}
+
+// Main server functions
 func handleCLIInput() {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
@@ -74,8 +145,8 @@ func handleCLIInput() {
 }
 
 func initalizeFollowerConnections() {
-	for _, port := range config.PortsList {
-		if port == config.PortsList[0] {
+	for _, port := range PortsList {
+		if port == PortsList[0] {
 			continue
 		}
 		conn, err := net.Dial("tcp", ":"+port)
@@ -93,8 +164,6 @@ func initalizeFollowerConnections() {
 func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	for {
-		// time.Sleep(time.Duration(config.NetworkDelay) * time.Second)
-
 		message, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Error reading from connection: %v", err)
@@ -156,27 +225,23 @@ func handleMessage(message string) string {
 }
 
 func handleInsert(clientID string, key int, value int) string {
-	if key%2 == 0 && config.IsLeader {
-		// Forward to secondary server
+	if key%2 == 0 && IsLeader {
 		forwardMessage(fmt.Sprintf("%s insert %d %d", clientID, key, value))
 		println("Output: Forwarding to secondary server")
 		return ""
 	}
-	// If key is odd, insert locally
-	database.Insert(key, value)
+	Insert(key, value)
 	fmt.Printf("Output: Successfully inserted key %d\n", key)
 	return "Success"
 }
 
 func handleLookup(clientID string, key int) string {
-	if key%2 == 0 && config.IsLeader {
-		// Forward to secondary server
+	if key%2 == 0 && IsLeader {
 		forwardMessage(fmt.Sprintf("%s lookup %d", clientID, key))
 		println("Output: Forwarding to secondary server")
 		return ""
 	}
-	// If key is odd, lookup locally
-	value, ok := database.Lookup(key)
+	value, ok := Lookup(key)
 	if !ok {
 		fmt.Printf("Output: NOT FOUND\n")
 		return "NOT FOUND"
@@ -186,25 +251,25 @@ func handleLookup(clientID string, key int) string {
 }
 
 func handleDump() string {
-	dumpString := database.Dump()
-	if config.IsLeader {
+	dumpString := Dump()
+	if IsLeader {
 		fmt.Printf("Output: %s, ", dumpString)
-		forwardMessage(fmt.Sprintf("%s dictionary", config.PortsList[0]))
+		forwardMessage(fmt.Sprintf("%s dictionary", PortsList[0]))
 	}
 	return dumpString
 }
 
 func forwardMessage(message string) {
 	var conn net.Conn
-	if _, ok := connectionMap[config.PortsList[1]]; !ok {
-		conn, err := net.Dial("tcp", ":"+config.PortsList[1])
+	if _, ok := connectionMap[PortsList[1]]; !ok {
+		conn, err := net.Dial("tcp", ":"+PortsList[1])
 		if err != nil {
 			log.Fatal(err)
 		}
-		connectionMap[config.PortsList[1]] = conn
+		connectionMap[PortsList[1]] = conn
 	}
 
-	conn = connectionMap[config.PortsList[1]]
+	conn = connectionMap[PortsList[1]]
 
 	writer := bufio.NewWriter(conn)
 	writer.WriteString(message + "\n")

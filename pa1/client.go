@@ -2,16 +2,18 @@ package main
 
 import (
 	"bufio"
-	"client/config"
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
 )
 
 var serverMap = make(map[string]net.Conn)
+var ClientID = ""
+var PortsList []string
 
 func main() {
 	ports := flag.String("ports", "", "Comma-separated list of ports")
@@ -21,8 +23,8 @@ func main() {
 		log.Fatal("Please provide ports using the -ports flag")
 	}
 
-	config.Initialize(*ports)
-	println("Client ID: ", config.ClientID)
+	Initialize(*ports)
+	// println("Client ID: ", ClientID)
 	initalizeConnections()
 
 	go handleCLIInput()
@@ -40,7 +42,7 @@ func handleCLIInput() {
 			fmt.Println("Exiting...")
 			os.Exit(0)
 		default:
-			sendMessage(config.PortsList[0], command)
+			sendMessage(PortsList[0], command)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -49,7 +51,7 @@ func handleCLIInput() {
 }
 
 func initalizeConnections() {
-	for _, port := range config.PortsList {
+	for _, port := range PortsList {
 		conn, err := net.Dial("tcp", ":"+port)
 		if err != nil {
 			log.Fatal(err)
@@ -61,8 +63,6 @@ func initalizeConnections() {
 	}
 }
 
-// sendMessage sends a message to the specified tcp port
-// if a connection to that port does not exist, it creates a new connection
 func sendMessage(port string, message string) {
 	var conn net.Conn
 	if _, ok := serverMap[port]; !ok {
@@ -76,12 +76,10 @@ func sendMessage(port string, message string) {
 	conn = serverMap[port]
 
 	writer := bufio.NewWriter(conn)
-	writer.WriteString(fmt.Sprintf("%s %s\n", config.ClientID, message))
+	writer.WriteString(fmt.Sprintf("%s %s\n", ClientID, message))
 	writer.Flush()
 }
 
-// listenForResponse listens for responses from the specified tcp port
-// if a connection to that port does not exist, it creates a new connection
 func listenForReponse(port string) {
 	var conn net.Conn
 	if _, ok := serverMap[port]; !ok {
@@ -105,4 +103,26 @@ func listenForReponse(port string) {
 		trimmedResponse := strings.TrimSpace(response)
 		fmt.Printf("Output: %s\n", trimmedResponse)
 	}
+}
+
+func Initialize(ports string) {
+	ClientID = generateRandomString(5)
+	if ports == "" {
+		log.Fatal("Ports must be provided")
+	}
+	PortsList = strings.Split(ports, ",")
+	for _, port := range PortsList {
+		if port == "" {
+			log.Fatal("invalid port")
+		}
+	}
+}
+
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
 }
