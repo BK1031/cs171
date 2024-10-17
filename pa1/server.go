@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -39,11 +40,25 @@ func main() {
 	initializeDatabase()
 	go handleCLIInput()
 
-	server, err := net.Listen("tcp", ":"+PortsList[0])
+	addr, err := net.ResolveTCPAddr("tcp", ":"+PortsList[0])
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer server.Close()
+
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer listener.Close()
+
+	// Set SO_REUSEADDR
+	file, err := listener.File()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := syscall.SetsockoptInt(int(file.Fd()), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+		log.Fatal(err)
+	}
 
 	// if IsLeader {
 	// 	println("State: Leader")
@@ -51,11 +66,10 @@ func main() {
 	// 	println("State: Follower")
 	// }
 
-	time.Sleep(3 * time.Second)
 	go initalizeFollowerConnections()
 
 	for {
-		conn, err := server.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("Error accepting connection: %v", err)
 			return
@@ -100,6 +114,7 @@ func handleCLIInput() {
 }
 
 func initalizeFollowerConnections() {
+	time.Sleep(3 * time.Second)
 	for _, port := range PortsList {
 		if port == PortsList[0] {
 			continue

@@ -9,11 +9,13 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 var serverMap = make(map[string]net.Conn)
 var ClientID = ""
 var PortsList []string
+var NetworkDelay = 3
 
 func main() {
 	ports := flag.String("ports", "", "Comma-separated list of ports")
@@ -100,8 +102,11 @@ func listenForReponse(port string) {
 			return
 		}
 
-		trimmedResponse := strings.TrimSpace(response)
-		fmt.Printf("Output: %s\n", trimmedResponse)
+		go func() {
+			time.Sleep(time.Duration(NetworkDelay) * time.Second)
+			trimmedResponse := strings.TrimSpace(response)
+			fmt.Printf("Output: %s\n", trimmedResponse)
+		}()
 	}
 }
 
