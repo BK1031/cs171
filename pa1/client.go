@@ -56,7 +56,7 @@ func initalizeConnections() {
 	for _, port := range PortsList {
 		conn, err := net.Dial("tcp", ":"+port)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("Address already in use: " + err.Error())
 		}
 		serverMap[port] = conn
 

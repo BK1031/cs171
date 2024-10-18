@@ -42,12 +42,12 @@ func main() {
 
 	addr, err := net.ResolveTCPAddr("tcp", ":"+PortsList[0])
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Address already in use: " + err.Error())
 	}
 
 	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Address already in use: " + PortsList[0] + ": " + err.Error())
 	}
 	defer listener.Close()
 
