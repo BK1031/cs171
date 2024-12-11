@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"os"
 	"server/config"
+	"server/consensus"
 	"server/database"
 	"server/llm"
+	"strconv"
 	"strings"
 )
 
@@ -42,8 +44,12 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(message, "create") {
 		id := strings.Split(message, " ")[1]
 		if config.IsLeader {
+			consensus.PrepareProposal(fmt.Sprintf("create-%s", id), id)
 			database.CreateContext(id)
-			// TODO: implement consensus
+			fmt.Printf("NEW CONTEXT %s\n", id)
+			for _, peer := range []string{"7001", "7002"} {
+				SendMessage(peer, fmt.Sprintf("accept-create %s", id))
+			}
 		}
 	}
 	if strings.HasPrefix(message, "query") {
@@ -52,7 +58,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		eq := database.Get(id)
 		database.Set(id, fmt.Sprintf("%s\nQuery: %s", eq, query))
 		q := database.Get(id)
-		println(q)
+		fmt.Printf("NEW QUERY on %s with %s\n", id, q)
 		response, err := llm.Query(q)
 		if err != nil {
 			println("error querying", err)
@@ -62,8 +68,6 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 			database.Responses[config.Port] = response
 			fmt.Printf("(%s) Response %s: %s\n", id, config.Port, response)
 		} else {
-			// send response to leader
-			println("sending response to leader", response)
 			SendMessage(fmt.Sprintf("%d", config.LeaderPort), fmt.Sprintf("response %s %s %s", id, config.Port, response))
 		}
 	}
@@ -81,11 +85,15 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		port := strings.Split(message, " ")[2]
 		response := database.Responses[port]
 		if config.IsLeader {
+			consensus.PrepareProposal(fmt.Sprintf("choose-%s", id), response)
 			database.ResetResponses()
 			eq := database.Get(id)
 			database.Set(id, fmt.Sprintf("%s\nAnswer: %s", eq, response))
+			fmt.Printf("CHOSEN ANSWER on %s with %s\n", id, response)
+			for _, peer := range []string{"7001", "7002"} {
+				SendMessage(peer, fmt.Sprintf("accept-choose %s %s", id, response))
+			}
 			database.PrintContext(id)
-			// TODO: implement consensus
 		}
 	}
 	if strings.HasPrefix(message, "viewall") {
@@ -96,6 +104,41 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		id := strings.Split(message, " ")[1]
 		database.PrintContext(id)
 		return
+	}
+	if strings.HasPrefix(message, "accept-create") {
+		id := strings.Split(message, " ")[1]
+		database.CreateContext(id)
+		fmt.Printf("NEW CONTEXT %s\n", id)
+		fmt.Println("ACK")
+	}
+	if strings.HasPrefix(message, "accept-choose") {
+		parts := strings.Split(message, " ")
+		id := parts[1]
+		response := strings.Join(parts[2:], " ")
+		database.ResetResponses()
+		eq := database.Get(id)
+		database.Set(id, fmt.Sprintf("%s\nAnswer: %s", eq, response))
+		fmt.Printf("CHOSEN ANSWER on %s with %s\n", id, response)
+		fmt.Println("ACK")
+	}
+	if strings.HasPrefix(message, "prepare") {
+		parts := strings.Split(message, " ")
+		instanceID := parts[1]
+		proposalNumber, _ := strconv.Atoi(parts[2])
+		leaderID := parts[3]
+
+		proposal := consensus.ProposalID{
+			Number:   proposalNumber,
+			LeaderID: leaderID,
+		}
+		accepted := consensus.HandlePrepare(instanceID, proposal)
+		if accepted {
+			SendMessage(leaderID, fmt.Sprintf("promise %s %d %s",
+				instanceID,
+				proposalNumber,
+				leaderID,
+			))
+		}
 	}
 }
 

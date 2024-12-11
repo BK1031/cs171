@@ -128,7 +128,7 @@ func ForwardMessage(src string, dest string, message string) {
 
 func CanForwardMessage(src string, dest string) bool {
 	for _, link := range failedLinks {
-		if link == fmt.Sprintf("%s-%s", src, dest) {
+		if link == fmt.Sprintf("%s-%s", src, dest) || link == fmt.Sprintf("%s-%s", dest, src) {
 			return false
 		}
 	}
